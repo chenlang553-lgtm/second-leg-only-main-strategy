@@ -90,6 +90,8 @@ class LiveTrader(object):
             MarketOrderArgs(
                 token_id=token_id,
                 amount=amount,
+                side=BUY,
+                price=price,
             ),
             options={
                 "tick_size": self.tick_size,
