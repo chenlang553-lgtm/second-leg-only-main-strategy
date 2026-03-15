@@ -81,6 +81,7 @@ def main(argv):
         market_strategy = SecondLegOnlyMainStrategy()
         metadata = fetch_market_metadata_by_slug(market_slug)
         last_status_signature = None
+        last_status_print_ms = 0
         last_heartbeat_second = None
         while True:
             feed = PolymarketMarketDataFeed(
@@ -141,8 +142,12 @@ def main(argv):
                         round(snapshot.scores.down, 6),
                         snapshot.time_to_expiry_sec,
                     )
-                    if status_signature != last_status_signature:
+                    if (
+                        status_signature != last_status_signature and
+                        snapshot.now_ms - last_status_print_ms >= 1000
+                    ):
                         last_status_signature = status_signature
+                        last_status_print_ms = snapshot.now_ms
                         print(json.dumps({
                             "type": "status",
                             "market_slug": metadata["slug"],
