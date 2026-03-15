@@ -162,5 +162,6 @@ runner 会：
 - 这版已经内置了真实下单接口，也已经支持单市场 websocket 实时模式
 - 也支持自动轮转 BTC 5m 市场
 - 真实下单使用的是 `market order + FAK`
-- 下单金额默认是 `qty * limit_price`
+- 下单金额当前固定为 `1 USDC`
+- `price` 字段当前固定为 `0.6`，作为滑点保护上限
 - 还没有 100% 复刻 `polymarket-bot main` 的全部行为，但已经不再是“只有第二腿的简化版”

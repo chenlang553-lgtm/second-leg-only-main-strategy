@@ -84,7 +84,7 @@ class LiveTrader(object):
         temp_client = ClobClient(host, key=private_key, chain_id=chain_id)
         return temp_client.create_or_derive_api_creds()
 
-    def buy_market(self, token_id, price, amount, tif="FAK"):
+    def buy_market(self, token_id, price, amount=1.0, tif="FAK"):
         order_type = OrderType.FAK if tif == "FAK" else OrderType.FAK
         return self.client.create_and_post_market_order(
             token_id=token_id,

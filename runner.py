@@ -109,14 +109,16 @@ def main(argv):
                     }
                     if args.live:
                         token_id = metadata["up_token_id"] if action.side == "Up" else metadata["down_token_id"]
-                        amount = round(action.qty * action.limit_price, 6)
+                        amount = 1.0
+                        slippage_price = 0.6
                         payload["execution"] = trader.buy_market(
                             token_id=token_id,
-                            price=action.limit_price,
+                            price=slippage_price,
                             amount=amount,
                             tif="FAK",
                         )
                         payload["amount"] = amount
+                        payload["execution_price"] = slippage_price
                     print(json.dumps(payload, ensure_ascii=False))
                     market_strategy.mark_second_leg_filled(
                         side=action.side,
@@ -221,15 +223,17 @@ def main(argv):
                     raise ValueError(
                         "live mode requires token_ids.up/down in each snapshot row"
                     )
-                amount = round(action.qty * action.limit_price, 6)
+                amount = 1.0
+                slippage_price = 0.6
                 response = trader.buy_market(
                     token_id=token_id,
-                    price=action.limit_price,
+                    price=slippage_price,
                     amount=amount,
                     tif="FAK",
                 )
                 payload["execution"] = response
                 payload["amount"] = amount
+                payload["execution_price"] = slippage_price
 
             print(json.dumps(payload, ensure_ascii=False))
 
