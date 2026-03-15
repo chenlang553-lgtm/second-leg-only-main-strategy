@@ -78,6 +78,7 @@ def main(argv):
 
     def run_live_market(market_slug):
         market_strategy = SecondLegOnlyMainStrategy()
+        last_status_second = None
         metadata = fetch_market_metadata_by_slug(market_slug)
         feed = PolymarketMarketDataFeed(
             market_slug=metadata["slug"],
@@ -93,6 +94,24 @@ def main(argv):
                 if isinstance(item, Exception):
                     raise item
                 snapshot = item
+                snapshot_second = snapshot.now_ms // 1000
+                if snapshot_second != last_status_second:
+                    last_status_second = snapshot_second
+                    print(json.dumps({
+                        "type": "status",
+                        "market_slug": metadata["slug"],
+                        "title": metadata["title"],
+                        "now_ms": snapshot.now_ms,
+                        "time_to_expiry_sec": snapshot.time_to_expiry_sec,
+                        "prices": {
+                            "up": round(snapshot.prices.up, 6),
+                            "down": round(snapshot.prices.down, 6),
+                        },
+                        "scores": {
+                            "up": round(snapshot.scores.up, 6),
+                            "down": round(snapshot.scores.down, 6),
+                        },
+                    }, ensure_ascii=False))
                 action = market_strategy.on_snapshot(snapshot)
                 if action is not None:
                     payload = {
