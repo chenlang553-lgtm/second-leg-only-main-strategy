@@ -165,3 +165,13 @@ runner 会：
 - 下单金额当前固定为 `1 USDC`
 - `price` 字段当前固定为 `0.6`，作为滑点保护上限
 - 还没有 100% 复刻 `polymarket-bot main` 的全部行为，但已经不再是“只有第二腿的简化版”
+
+## 日志行为
+
+实时运行时会输出这些日志：
+
+- `status`：仅当价格 / score / 剩余秒数发生变化时打印
+- `heartbeat`：如果行情暂时没变化，每 5 秒确认一次进程仍活着
+- `watchdog_reconnect`：超过 5 秒没有新的 websocket `book` 消息时，自动重连当前市场
+- `order_action`：策略真正触发下单时打印
+- `startup` / `rollover`：启动和市场轮转时打印

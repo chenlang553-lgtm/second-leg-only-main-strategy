@@ -3,6 +3,7 @@
 
 import argparse
 import json
+import queue
 import sys
 import time
 
@@ -78,78 +79,123 @@ def main(argv):
 
     def run_live_market(market_slug):
         market_strategy = SecondLegOnlyMainStrategy()
-        last_status_second = None
         metadata = fetch_market_metadata_by_slug(market_slug)
-        feed = PolymarketMarketDataFeed(
-            market_slug=metadata["slug"],
-            title=metadata["title"],
-            up_token_id=metadata["up_token_id"],
-            down_token_id=metadata["down_token_id"],
-            end_time_ms=metadata["end_time_ms"],
-        )
-        feed.connect()
-        try:
-            while True:
-                item = feed.queue.get()
-                if isinstance(item, Exception):
-                    raise item
-                snapshot = item
-                snapshot_second = snapshot.now_ms // 1000
-                if snapshot_second != last_status_second:
-                    last_status_second = snapshot_second
-                    print(json.dumps({
-                        "type": "status",
-                        "market_slug": metadata["slug"],
-                        "title": metadata["title"],
-                        "now_ms": snapshot.now_ms,
-                        "time_to_expiry_sec": snapshot.time_to_expiry_sec,
-                        "prices": {
-                            "up": round(snapshot.prices.up, 6),
-                            "down": round(snapshot.prices.down, 6),
-                        },
-                        "scores": {
-                            "up": round(snapshot.scores.up, 6),
-                            "down": round(snapshot.scores.down, 6),
-                        },
-                    }, ensure_ascii=False))
-                action = market_strategy.on_snapshot(snapshot)
-                if action is not None:
-                    payload = {
-                        "type": "order_action",
-                        "market_slug": metadata["slug"],
-                        "side": action.side,
-                        "qty": action.qty,
-                        "tif": action.tif,
-                        "role": action.role,
-                        "limit_price": action.limit_price,
-                        "reason": action.reason,
-                        "now_ms": snapshot.now_ms,
-                        "time_to_expiry_sec": snapshot.time_to_expiry_sec,
-                    }
-                    if args.live:
-                        token_id = metadata["up_token_id"] if action.side == "Up" else metadata["down_token_id"]
-                        amount = 1.0
-                        slippage_price = 0.6
-                        payload["execution"] = trader.buy_market(
-                            token_id=token_id,
-                            price=slippage_price,
-                            amount=amount,
-                            tif="FAK",
+        last_status_signature = None
+        last_heartbeat_second = None
+        while True:
+            feed = PolymarketMarketDataFeed(
+                market_slug=metadata["slug"],
+                title=metadata["title"],
+                up_token_id=metadata["up_token_id"],
+                down_token_id=metadata["down_token_id"],
+                end_time_ms=metadata["end_time_ms"],
+            )
+            feed.connect()
+            last_snapshot = None
+            try:
+                while True:
+                    try:
+                        item = feed.queue.get(timeout=1)
+                    except queue.Empty:
+                        now_ms = int(time.time() * 1000)
+                        if last_snapshot is not None:
+                            current_second = now_ms // 1000
+                            if current_second != last_heartbeat_second and current_second % 5 == 0:
+                                last_heartbeat_second = current_second
+                                print(json.dumps({
+                                    "type": "heartbeat",
+                                    "market_slug": metadata["slug"],
+                                    "now_ms": now_ms,
+                                    "last_snapshot_ms": last_snapshot.now_ms,
+                                    "stale_ms": now_ms - last_snapshot.now_ms,
+                                    "time_to_expiry_sec": max(0, int((metadata["end_time_ms"] - now_ms) / 1000)),
+                                }, ensure_ascii=False))
+                        stale_ms = (
+                            now_ms - feed.last_message_ms
+                            if feed.last_message_ms is not None
+                            else now_ms
                         )
-                        payload["amount"] = amount
-                        payload["execution_price"] = slippage_price
-                    print(json.dumps(payload, ensure_ascii=False))
-                    market_strategy.mark_second_leg_filled(
-                        side=action.side,
-                        price=action.limit_price,
-                        qty=action.qty,
+                        if stale_ms > 5000:
+                            print(json.dumps({
+                                "type": "watchdog_reconnect",
+                                "market_slug": metadata["slug"],
+                                "stale_ms": stale_ms,
+                            }, ensure_ascii=False))
+                            break
+                        continue
+
+                    if isinstance(item, Exception):
+                        print(json.dumps({
+                            "type": "feed_error",
+                            "market_slug": metadata["slug"],
+                            "error": str(item),
+                        }, ensure_ascii=False))
+                        break
+
+                    snapshot = item
+                    last_snapshot = snapshot
+                    status_signature = (
+                        round(snapshot.prices.up, 6),
+                        round(snapshot.prices.down, 6),
+                        round(snapshot.scores.up, 6),
+                        round(snapshot.scores.down, 6),
+                        snapshot.time_to_expiry_sec,
                     )
-                    if not args.keep_running:
+                    if status_signature != last_status_signature:
+                        last_status_signature = status_signature
+                        print(json.dumps({
+                            "type": "status",
+                            "market_slug": metadata["slug"],
+                            "title": metadata["title"],
+                            "now_ms": snapshot.now_ms,
+                            "time_to_expiry_sec": snapshot.time_to_expiry_sec,
+                            "prices": {
+                                "up": round(snapshot.prices.up, 6),
+                                "down": round(snapshot.prices.down, 6),
+                            },
+                            "scores": {
+                                "up": round(snapshot.scores.up, 6),
+                                "down": round(snapshot.scores.down, 6),
+                            },
+                        }, ensure_ascii=False))
+                    action = market_strategy.on_snapshot(snapshot)
+                    if action is not None:
+                        payload = {
+                            "type": "order_action",
+                            "market_slug": metadata["slug"],
+                            "side": action.side,
+                            "qty": action.qty,
+                            "tif": action.tif,
+                            "role": action.role,
+                            "limit_price": action.limit_price,
+                            "reason": action.reason,
+                            "now_ms": snapshot.now_ms,
+                            "time_to_expiry_sec": snapshot.time_to_expiry_sec,
+                        }
+                        if args.live:
+                            token_id = metadata["up_token_id"] if action.side == "Up" else metadata["down_token_id"]
+                            amount = 1.0
+                            slippage_price = 0.6
+                            payload["execution"] = trader.buy_market(
+                                token_id=token_id,
+                                price=slippage_price,
+                                amount=amount,
+                                tif="FAK",
+                            )
+                            payload["amount"] = amount
+                            payload["execution_price"] = slippage_price
+                        print(json.dumps(payload, ensure_ascii=False))
+                        market_strategy.mark_second_leg_filled(
+                            side=action.side,
+                            price=action.limit_price,
+                            qty=action.qty,
+                        )
+                        if not args.keep_running:
+                            return metadata["slug"]
+                    if snapshot.time_to_expiry_sec <= 0:
                         return metadata["slug"]
-                if snapshot.time_to_expiry_sec <= 0:
-                    return metadata["slug"]
-        finally:
-            feed.close()
+            finally:
+                feed.close()
 
     def resolve_initial_market_slug():
         if args.slug:

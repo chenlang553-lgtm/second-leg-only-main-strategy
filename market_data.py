@@ -63,6 +63,7 @@ class PolymarketMarketDataFeed(object):
         self.queue = queue.Queue()
         self._ws_app = None
         self._thread = None
+        self.last_message_ms = None
 
     def _on_open(self, ws_app):
         ws_app.send(json.dumps({
@@ -72,6 +73,7 @@ class PolymarketMarketDataFeed(object):
         }))
 
     def _on_message(self, ws_app, raw_message):
+        self.last_message_ms = int(time.time() * 1000)
         payload = json.loads(raw_message)
         messages = payload if isinstance(payload, list) else [payload]
         for message in messages:
@@ -93,6 +95,13 @@ class PolymarketMarketDataFeed(object):
 
     def _on_error(self, ws_app, error):
         self.queue.put(error)
+
+    def _on_close(self, ws_app, status_code, message):
+        self.queue.put(RuntimeError(
+            "market data websocket closed status_code={} message={}".format(
+                status_code, message
+            )
+        ))
 
     def build_snapshot(self):
         up_book = self.books.get(self.up_token_id)
@@ -123,6 +132,7 @@ class PolymarketMarketDataFeed(object):
             on_open=self._on_open,
             on_message=self._on_message,
             on_error=self._on_error,
+            on_close=self._on_close,
         )
         self._thread = threading.Thread(target=self._ws_app.run_forever, daemon=True)
         self._thread.start()
