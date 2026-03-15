@@ -4,7 +4,7 @@
 import os
 
 from py_clob_client.client import ClobClient
-from py_clob_client.clob_types import ApiCreds, OrderType
+from py_clob_client.clob_types import ApiCreds, MarketOrderArgs, OrderType
 from py_clob_client.order_builder.constants import BUY
 
 
@@ -86,14 +86,23 @@ class LiveTrader(object):
 
     def buy_market(self, token_id, price, amount=1.0, tif="FAK"):
         order_type = OrderType.FAK if tif == "FAK" else OrderType.FAK
-        return self.client.create_and_post_market_order(
-            token_id=token_id,
-            side=BUY,
-            amount=amount,
-            price=price,
+        signed_order = self.client.create_market_order(
+            MarketOrderArgs(
+                token_id=token_id,
+                amount=amount,
+            ),
             options={
                 "tick_size": self.tick_size,
                 "neg_risk": self.neg_risk,
             },
+        )
+        response = self.client.post_order(
+            signed_order,
             order_type=order_type,
         )
+        # Keep execution context explicit in local logs.
+        if isinstance(response, dict):
+            response.setdefault("requested_side", BUY)
+            response.setdefault("requested_price_cap", price)
+            response.setdefault("requested_amount", amount)
+        return response
